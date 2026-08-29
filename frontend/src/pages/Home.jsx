@@ -11,7 +11,7 @@ function Home() {
       })
       .catch((error) => {
         console.error("Backend connection failed:", error);
-        setStatus("Backend connection failed ❌");
+        setStatus("Backend connection failed");
       });
   }, []);
 
