@@ -1,3 +1,4 @@
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -25,51 +26,55 @@ app.get("/", (req, res) => {
     });
 });
 
-async function startServer() {
-    let mongoUri = process.env.MONGO_URI;
+let mongoConnection;
 
-    // -------------------------------------------------------
-    // 1. Try connecting to the configured MONGO_URI
-    // -------------------------------------------------------
-    if (mongoUri) {
-        try {
-            await mongoose.connect(mongoUri);
-            console.log("MongoDB connected successfully");
-        } catch (error) {
-            console.warn("Could not connect to configured MongoDB:", error.message);
-            console.warn("Falling back to in-memory MongoDB...\n");
-            mongoUri = null;
-        }
+async function connectDB() {
+    if (mongoose.connection.readyState === 1) {
+        return;
     }
 
-    // -------------------------------------------------------
-    // 2. If no URI or connection failed, start in-memory MongoDB
-    // -------------------------------------------------------
-    if (!mongoUri) {
-        try {
-            const { MongoMemoryServer } = require("mongodb-memory-server");
-            const mongod = await MongoMemoryServer.create();
-            const memUri = mongod.getUri();
-            await mongoose.connect(memUri);
-            console.log("Using in-memory MongoDB (no system MongoDB required)");
-            console.log("Data will NOT persist between restarts.\n");
-        } catch (memError) {
-            console.error("Failed to start in-memory MongoDB:", memError.message);
-            console.error("\nInstall MongoDB or set MONGO_URI in .env to fix this.");
-            console.error("  npm install -g mongodb-memory-server  (already installed as devDep)");
-            console.error("  OR install MongoDB: https://www.mongodb.com/docs/manual/installation/\n");
-            process.exit(1);
-        }
+    if (!process.env.MONGO_URI) {
+        throw new Error("MONGO_URI is not configured");
     }
 
-    // -------------------------------------------------------
-    // 3. Start Express
-    // -------------------------------------------------------
-    const PORT = process.env.PORT || 5000;
+    if (!mongoConnection) {
+        mongoConnection = mongoose.connect(process.env.MONGO_URI)
+            .then(() => console.log("MongoDB connected successfully"))
+            .catch((error) => {
+                mongoConnection = null;
+                throw error;
+            });
+    }
 
-    app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`);
-    });
+    await mongoConnection;
 }
 
-startServer();
+app.use(async (req, res, next) => {
+    try {
+        await connectDB();
+        next();
+    } catch (error) {
+        console.error("Database connection error:", error.message);
+        res.status(503).json({
+            success: false,
+            message: "Database unavailable"
+        });
+    }
+});
+
+if (require.main === module) {
+    const PORT = process.env.PORT || 5000;
+
+    connectDB()
+        .then(() => {
+            app.listen(PORT, () => {
+                console.log(`Server running on http://localhost:${PORT}`);
+            });
+        })
+        .catch((error) => {
+            console.error("Failed to connect to MongoDB:", error.message);
+            process.exit(1);
+        });
+}
+
+module.exports = app;
